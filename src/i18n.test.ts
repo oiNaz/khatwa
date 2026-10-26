@@ -24,6 +24,9 @@ describe('English and Arabic UI translations', () => {
     expect(translate('en', 'installAction')).toBe('Install خُطوة')
     expect(translate('ar', 'installAction')).toBe('تثبيت خُطوة')
     expect(translate('ar', 'installTitle')).toContain('خُطوة')
+    expect(translate('ar', 'installHelpIos')).toContain('Safari')
+    expect(translate('en', 'installHelpAndroid')).toContain('Chrome')
+    expect(translate('ar', 'installStatusInstalled')).toBe('مثبّت على هذا الجهاز')
   })
 
   it('translates subtask controls and progress in both languages', () => {

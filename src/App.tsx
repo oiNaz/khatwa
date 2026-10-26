@@ -19,6 +19,7 @@ type InstallPromptEvent = Event & {
   prompt: () => Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
+type InstallPlatform = 'ios' | 'android' | 'other'
 type AchievementCelebration = { count: number; title: string }
 
 const installStateKey = 'khatwa-install-state'
@@ -118,6 +119,8 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [installPromptEvent, setInstallPromptEvent] = useState<InstallPromptEvent | null>(null)
   const [showInstallInvite, setShowInstallInvite] = useState(false)
+  const [isAppInstalled, setIsAppInstalled] = useState(false)
+  const [installHelpPlatform, setInstallHelpPlatform] = useState<InstallPlatform | null>(null)
   const [search, setSearch] = useState('')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -130,6 +133,7 @@ function App() {
   const [focusMinutes, setFocusMinutes] = useState(settings.defaultFocusMinutes)
   const [importInput, setImportInput] = useState<HTMLInputElement | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const installHelpCloseRef = useRef<HTMLButtonElement>(null)
   const dialogOpenerRef = useRef<HTMLElement | null>(null)
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -197,26 +201,39 @@ function App() {
   useEffect(() => {
     const standaloneQuery = window.matchMedia('(display-mode: standalone)')
     const isStandalone = () => standaloneQuery.matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
-    const invitationHandled = () => window.localStorage.getItem(installStateKey) !== null
-
-    if (isStandalone()) {
-      window.localStorage.setItem(installStateKey, 'installed')
-      return
+    const invitationHandled = () => {
+      try {
+        return window.localStorage.getItem(installStateKey) !== null
+      } catch (error) {
+        console.warn('Could not read the install invitation preference.', error)
+        return false
+      }
     }
-    if (window.localStorage.getItem(installStateKey) === 'installed') return
+    const markInstalled = () => {
+      setIsAppInstalled(true)
+      try {
+        window.localStorage.setItem(installStateKey, 'installed')
+      } catch (error) {
+        console.warn('Could not save the installed app state.', error)
+      }
+      setShowInstallInvite(false)
+      setInstallPromptEvent(null)
+    }
+
+    setIsAppInstalled(isStandalone())
+    if (isStandalone()) markInstalled()
 
     function onBeforeInstallPrompt(event: Event) {
       event.preventDefault()
-      if (invitationHandled()) return
       setInstallPromptEvent(event as InstallPromptEvent)
-      setShowInstallInvite(true)
+      if (!invitationHandled()) setShowInstallInvite(true)
     }
     function onAppInstalled() {
-      window.localStorage.setItem(installStateKey, 'installed')
-      setShowInstallInvite(false)
+      markInstalled()
     }
     function onDisplayModeChange(event: MediaQueryListEvent) {
-      if (event.matches) onAppInstalled()
+      if (event.matches) markInstalled()
+      else setIsAppInstalled(false)
     }
 
     window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
@@ -240,16 +257,25 @@ function App() {
   }
 
   const dismissInstallInvite = (state = 'dismissed') => {
-    window.localStorage.setItem(installStateKey, state)
+    try {
+      window.localStorage.setItem(installStateKey, state)
+    } catch (error) {
+      console.warn('Could not save the install invitation preference.', error)
+    }
     setShowInstallInvite(false)
   }
 
   const installApp = async () => {
-    if (!installPromptEvent) return
+    if (!installPromptEvent) {
+      const userAgent = navigator.userAgent
+      setInstallHelpPlatform(/iPhone|iPad|iPod/i.test(userAgent) ? 'ios' : /Android/i.test(userAgent) ? 'android' : 'other')
+      return
+    }
     try {
       await installPromptEvent.prompt()
       const choice = await installPromptEvent.userChoice
       dismissInstallInvite(choice.outcome === 'accepted' ? 'installed' : 'dismissed')
+      if (choice.outcome === 'accepted') setIsAppInstalled(true)
       setInstallPromptEvent(null)
     } catch {
       showToast(tr('installFailed'))
@@ -355,6 +381,16 @@ function App() {
     document.addEventListener('keydown', trapFocus)
     return () => document.removeEventListener('keydown', trapFocus)
   }, [taskDialog, closeTaskDialog])
+
+  useEffect(() => {
+    if (!installHelpPlatform) return
+    installHelpCloseRef.current?.focus()
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setInstallHelpPlatform(null)
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [installHelpPlatform])
 
   useEffect(() => {
     if (section === 'All Tasks' && focusSearchOnSectionChange.current) {
@@ -837,6 +873,7 @@ function App() {
   const renderSettings = () => <section className="panel"><div className="panel-heading"><h2>{tr('preferencesData')}</h2><ShieldCheck size={16} color="#67c9a5" /></div><div className="panel-body">
     <div className="settings-section"><h3 className="settings-title">{tr('appearance')}</h3><p className="settings-description">{tr('themeStored')}</p><div className="setting-row"><span className="task-title">{tr('theme')}</span><select className="select" aria-label={tr('theme')} value={settings.theme} onChange={(event) => void saveSettings({ theme: event.target.value as AppSettings['theme'] })}><option value="dark">{tr('dark')}</option><option value="light">{tr('light')}</option></select></div><div className="setting-row" style={{ marginTop: 10 }}><span className="task-title">{tr('languageDirection')}</span><select className="select" aria-label={tr('languageDirection')} value={settings.language} onChange={(event) => void saveSettings({ language: event.target.value as AppSettings['language'] })}><option value="en">{tr('englishLtr')}</option><option value="ar">{tr('arabicRtl')}</option></select></div></div>
     <div className="settings-section"><h3 className="settings-title">{tr('dailyFocusGoal')}</h3><p className="settings-description">{tr('gentleTarget')}</p><div className="setting-row"><span className="task-title">{tr('minutesPerDay')}</span><input className="input" aria-label={tr('minutesPerDay')} type="number" min="0" max="1440" value={settings.dailyFocusMinutes} onChange={(event) => void saveSettings({ dailyFocusMinutes: Number(event.target.value) })} style={{ width: 100 }} /></div></div>
+    <div className="settings-section"><h3 className="settings-title">{tr('installSectionTitle')}</h3><p className="settings-description">{tr('installDescription')}</p><div className="setting-row"><span className="task-title">{isAppInstalled ? tr('installStatusInstalled') : tr('installStatusAvailable')}</span>{!isAppInstalled && <button className="btn primary" onClick={() => void installApp()}><Download size={14} /> {tr('installAction')}</button>}</div></div>
     <div className="settings-section"><h3 className="settings-title">{tr('notifications')}</h3><p className="settings-description">{tr('notificationLimit')}</p><div className="setting-row"><span className="task-title">{settings.notificationsEnabled ? tr('enabledBrowser') : tr('notEnabled')}</span><button className="btn" onClick={() => void setNotification()}>{settings.notificationsEnabled ? tr('checkPermission') : tr('enableNotifications')}</button></div></div>
     <div className="settings-section"><h3 className="settings-title">{tr('backupRestore')}</h3><p className="settings-description">{tr('backupDescription')}</p><div className="toolbar"><button className="btn primary" onClick={() => void exportBackup()}><Download size={14} /> {tr('downloadBackup')}</button><button className="btn" onClick={() => importInput?.click()}>{tr('importBackup')}</button><input ref={setImportInput} type="file" accept="application/json,.json" hidden onChange={(event) => { void importBackup(event.target.files?.[0]); event.currentTarget.value = '' }} /></div></div>
     <div className="settings-section"><h3 className="settings-title">{tr('privacyStorage')}</h3><p className="settings-description">{tr('privacyDescription')}</p></div>
@@ -849,7 +886,7 @@ function App() {
   const subKeys: Record<Section, MessageKey> = { Today: 'todaySubtitle', Inbox: 'inboxSubtitle', 'All Tasks': 'allTasksSubtitle', Calendar: 'calendarSubtitle', Kanban: 'kanbanSubtitle', Focus: 'focusSubtitle', Analytics: 'analyticsSubtitle', Achievements: 'achievementsSubtitle', Settings: 'settingsSubtitle', Archive: 'archiveSubtitle', Trash: 'trashSubtitle' }
   if (showWelcome) return <main className="welcome-screen">
     <div className="welcome-topbar">
-      <div className="welcome-brand"><span className="brand-mark"><Plus size={19} strokeWidth={2.8} /></span><span className="brand-name">خُطوة</span></div>
+      <div className="welcome-brand"><span className="brand-mark"><img src="./daymark-icon-192.png" alt="" /></span><span className="brand-name">خُطوة</span></div>
       <div className="welcome-controls">
         <button className="icon-btn" title={settings.theme === 'dark' ? tr('switchToLight') : tr('switchToDark')} aria-label={settings.theme === 'dark' ? tr('switchToLight') : tr('switchToDark')} onClick={toggleTheme}>{settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
         <button className="icon-btn language-switch" title={tr('language')} aria-label={tr('language')} onClick={() => void saveSettings({ language: language === 'en' ? 'ar' : 'en' })}><Languages size={16} /></button>
@@ -867,6 +904,7 @@ function App() {
         <div className="welcome-actions">
           <button className="btn primary welcome-primary" onClick={finishWelcome}>{tr('welcomeStart')}<ChevronRight size={16} /></button>
           <button className="btn subtle welcome-secondary" onClick={() => { setSection('Achievements'); finishWelcome() }}><Trophy size={15} />{tr('welcomeAchievements')}</button>
+          {!isAppInstalled && <button className="btn subtle welcome-install" onClick={() => void installApp()}><Download size={15} />{tr('installAction')}</button>}
         </div>
       </section>
       <aside className="welcome-achievements">
@@ -885,7 +923,7 @@ function App() {
   </main>
   return <div className="app-shell">
     <aside id="app-navigation" className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`} aria-label={tr('workspace')} aria-hidden={Boolean(taskDialog)}>
-      <div className="brand"><div className="brand-lockup"><div className="brand-mark"><Plus size={19} strokeWidth={2.8} /></div><span className="brand-name">خُطوة</span></div><button className="icon-btn mobile-menu-close" aria-label={tr('closeNavigation')} onClick={() => setMobileMenuOpen(false)}><X size={18} /></button></div>
+      <div className="brand"><div className="brand-lockup"><div className="brand-mark"><img src="./daymark-icon-192.png" alt="" /></div><span className="brand-name">خُطوة</span></div><button className="icon-btn mobile-menu-close" aria-label={tr('closeNavigation')} onClick={() => setMobileMenuOpen(false)}><X size={18} /></button></div>
       {(['WORKSPACE', 'MANAGE'] as const).map((group) => <nav key={group} aria-label={group === 'WORKSPACE' ? tr('workspace') : tr('manage')}>
         <div className="nav-label">{group === 'WORKSPACE' ? tr('workspace') : tr('manage')}</div>
         {sections.filter((item) => item.group === group).map(({ name, icon: Icon }) => <button className={`nav-item ${section === name ? 'active' : ''}`} key={name} onClick={() => navigateToSection(name)} aria-label={tr('goTo', { name: tr(sectionLabels[name]) })} title={tr(sectionLabels[name])} aria-current={section === name ? 'page' : undefined}>
@@ -900,7 +938,7 @@ function App() {
         <button ref={mobileMenuButtonRef} className="icon-btn mobile-menu-toggle" aria-label={tr('openNavigation')} aria-expanded={mobileMenuOpen} aria-controls="app-navigation" onClick={() => setMobileMenuOpen((open) => !open)}><Menu size={19} /></button>
         <div className="mobile-brand" lang="ar" dir="rtl">خُطوة</div>
         <div className="breadcrumb"><span>{tr('workspace')}</span><ChevronRight size={12} aria-hidden="true" /><span>{tr(sectionLabels[section])}</span></div>
-        <div className="top-actions"><button className="icon-btn quick-add-button" title={tr('quickAdd')} aria-label={tr('quickAdd')} onClick={() => openTaskDialog(blankTask())}><Plus size={16} /></button><button className="icon-btn" title={tr('searchTasks')} aria-label={tr('searchTasks')} onClick={() => { focusSearchOnSectionChange.current = true; navigateToSection('All Tasks') }}><Search size={16} /></button><button className="icon-btn theme-toggle" title={settings.theme === 'dark' ? tr('switchToLight') : tr('switchToDark')} aria-label={settings.theme === 'dark' ? tr('switchToLight') : tr('switchToDark')} onClick={toggleTheme}>{settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><button className="icon-btn language-switch" title={tr('language')} aria-label={tr('language')} onClick={() => void saveSettings({ language: language === 'en' ? 'ar' : 'en' })}><Languages size={16} /></button></div>
+        <div className="top-actions"><button className="icon-btn quick-add-button" title={tr('quickAdd')} aria-label={tr('quickAdd')} onClick={() => openTaskDialog(blankTask())}><Plus size={16} /></button><button className="icon-btn search-open-button" title={tr('searchTasks')} aria-label={tr('searchTasks')} onClick={() => { focusSearchOnSectionChange.current = true; navigateToSection('All Tasks') }}><Search size={16} /></button><button className="icon-btn theme-toggle" title={settings.theme === 'dark' ? tr('switchToLight') : tr('switchToDark')} aria-label={settings.theme === 'dark' ? tr('switchToLight') : tr('switchToDark')} onClick={toggleTheme}>{settings.theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button><button className="icon-btn language-switch" title={tr('language')} aria-label={tr('language')} onClick={() => void saveSettings({ language: language === 'en' ? 'ar' : 'en' })}><Languages size={16} /></button>{!isAppInstalled && <button className="icon-btn mobile-install-button" title={tr('installAction')} aria-label={tr('installAction')} onClick={() => void installApp()}><Download size={16} /></button>}</div>
       </header>
       <div className="content">
         <div className="page-heading"><div><h1>{tr(headingKeys[section])}</h1><p className="subtitle">{tr(subKeys[section])}</p></div>{!['Settings', 'Archive', 'Trash', 'Achievements'].includes(section) && <button className="btn primary" onClick={() => openTaskDialog({ ...blankTask(), dueAt: section === 'Today' ? todayKey(new Date()) : null })}><Plus size={15} /> {tr('newTask')}</button>}</div>
@@ -964,6 +1002,13 @@ function App() {
           <div className="form-actions"><button type="button" className="btn" onClick={closeTaskDialog}>{tr('cancel')}</button><button type="submit" className="btn primary"><Check size={14} /> {tr('saveTask')}</button></div>
         </form>
       </div>
+    </div>}
+    {installHelpPlatform && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setInstallHelpPlatform(null) }}>
+      <section className="modal install-help" role="dialog" aria-modal="true" aria-labelledby="install-help-title">
+        <div className="modal-heading"><h2 id="install-help-title">{tr('installHelpTitle')}</h2><button ref={installHelpCloseRef} className="icon-btn" aria-label={tr('closeInstallHelp')} onClick={() => setInstallHelpPlatform(null)}><X size={16} /></button></div>
+        <p className="settings-description">{tr(installHelpPlatform === 'ios' ? 'installHelpIos' : installHelpPlatform === 'android' ? 'installHelpAndroid' : 'installHelpOther')}</p>
+        <div className="form-actions"><button className="btn primary" onClick={() => setInstallHelpPlatform(null)}>{tr('closeInstallHelp')}</button></div>
+      </section>
     </div>}
     {toast && <div className="toast" role="status">{toast}</div>}
     {achievementCelebration && <>
