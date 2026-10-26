@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+.vercel/
+.impeccable/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.local
+*-backup-*.json
