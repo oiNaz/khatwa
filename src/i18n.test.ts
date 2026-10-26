@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { achievements } from './achievements'
+import { defaultSettings } from './db'
 import { translate } from './i18n'
 import { motivationalQuotes } from './motivations'
 
 describe('English and Arabic UI translations', () => {
+  it('uses Arabic as the first-run language', () => {
+    expect(defaultSettings.language).toBe('ar')
+  })
+
   it('translates navigation, forms, and timer controls', () => {
     expect(translate('ar', 'today')).toBe('اليوم')
     expect(translate('ar', 'saveTask')).toBe('حفظ المهمة')

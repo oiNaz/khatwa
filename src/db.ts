@@ -54,7 +54,7 @@ export const db = new DaymarkDatabase()
 export const defaultSettings: AppSettings = {
   id: 'preferences',
   theme: 'dark',
-  language: 'en',
+  language: 'ar',
   dailyFocusMinutes: 120,
   defaultFocusMinutes: 25,
   notificationsEnabled: false,
